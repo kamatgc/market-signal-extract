@@ -50,25 +50,29 @@ def load_summary():
     df.columns = [col.strip().lower() for col in df.columns]
     return df
 
+# 📊 Load data
+df = load_snowflake_data()
+summary_df = load_summary()
+
 # 🎨 Sidebar filters
 st.sidebar.title("🔍 Filter Trades")
 mode_filter = st.sidebar.selectbox("Sentiment Mode", ["positive", "random", "negative"])
 trigger_filter = st.sidebar.multiselect("Trigger Type", ["primary", "fallback", "momentum"], default=["primary", "fallback", "momentum"])
 
-# 📊 Load data
-df = load_snowflake_data()
-summary_df = load_summary()
+# 🧠 Symbol filter
+available_symbols = sorted(df["symbol"].dropna().unique())
+symbol_filter = st.sidebar.selectbox("Symbol", available_symbols)
 
 # 🧼 Filter data
-filtered_df = df[df["trigger_type"].str.lower().isin(trigger_filter)]
+filtered_df = df[
+    (df["trigger_type"].str.lower().isin(trigger_filter)) &
+    (df["symbol"] == symbol_filter)
+]
 filtered_summary = summary_df[summary_df["mode"] == mode_filter]
-
-# 🏷️ Extract symbol if available
-symbol_name = filtered_df["symbol"].iloc[0] if "symbol" in filtered_df.columns and not filtered_df.empty else "N/A"
 
 # 📋 Dashboard Title
 st.title(f"📈 Strategy Dashboard — Mode: {mode_filter.capitalize()}")
-st.markdown(f"**Symbol:** `{symbol_name}`")
+st.markdown(f"**Symbol:** `{symbol_filter}`")
 
 # 📊 Summary metrics
 st.metric("Total Trades", len(filtered_df))
@@ -78,6 +82,14 @@ st.metric("Avg Holding Duration (days)", round(filtered_df["holding_days"].mean(
 # 🚨 Anomaly Count
 if "anomaly_flag" in filtered_df.columns:
     st.metric("Anomalies", int(filtered_df["anomaly_flag"].sum()))
+
+# 📌 Latest Signal Display
+if not filtered_df.empty:
+    latest = filtered_df.sort_values("entry_date", ascending=False).iloc[0]
+    st.subheader(f"📌 Latest Signal for {symbol_filter}")
+    st.write(f"**Action:** `{latest['signal_type']}`")
+    st.write(f"**Date:** `{latest['entry_date']}`")
+    st.write(f"**Signal Strength:** `{latest['entry_signal_strength']}`")
 
 # 📊 Trigger Distribution
 st.subheader("Trigger Type Distribution")
