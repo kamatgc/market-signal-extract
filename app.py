@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 load_dotenv()
 
-# 🔐 Snowflake credentials from .env
+# 🔐 Load Snowflake credentials from environment or secrets
 SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
 SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
 SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
@@ -15,8 +15,16 @@ SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
 SNOWFLAKE_DATABASE = os.getenv("SNOWFLAKE_DATABASE")
 SNOWFLAKE_SCHEMA = os.getenv("SNOWFLAKE_SCHEMA")
 
+# ✅ Validate credentials before proceeding
+required_vars = [
+    SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, SNOWFLAKE_ACCOUNT,
+    SNOWFLAKE_WAREHOUSE, SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA
+]
+if not all(required_vars):
+    st.error("❌ Missing Snowflake credentials. Please check your secrets configuration.")
+    st.stop()
 
-# 📡 Connect to Snowflake
+# 📡 Connect to Snowflake and load BACKTEST_RESULTS
 @st.cache_data
 def load_snowflake_data():
     conn = snowflake.connector.connect(
@@ -35,10 +43,12 @@ def load_snowflake_data():
     conn.close()
     return df
 
-# 📁 Load scored summary
+# 📁 Load mode comparison summary
 @st.cache_data
 def load_summary():
-    return pd.read_csv("mode_comparison_summary.csv")
+    df = pd.read_csv("mode_comparison_summary.csv")
+    df.columns = [col.strip().lower() for col in df.columns]
+    return df
 
 # 🎨 Sidebar filters
 st.sidebar.title("🔍 Filter Trades")
@@ -51,7 +61,7 @@ summary_df = load_summary()
 
 # 🧼 Filter data
 filtered_df = df[df["trigger_type"].str.lower().isin(trigger_filter)]
-filtered_summary = summary_df[summary_df["Mode"] == mode_filter]
+filtered_summary = summary_df[summary_df["mode"] == mode_filter]
 
 # 📋 Summary metrics
 st.title("📈 Strategy Dashboard")
@@ -76,5 +86,5 @@ st.pyplot(fig)
 # 📁 Download buttons
 st.subheader("📁 Download Data")
 st.download_button("Download Trades", filtered_df.to_csv(index=False), file_name="trades_dashboard_filtered.csv")
-st.download_button("Download Summary", filtered_summary.to_csv(index=False), file_name="trade_outcome_summary_filtered.csv")
+st.download_button("Download Summary", filtered_summary.to_csv(index=False), file_name="mode_comparison_summary_filtered.csv")
 
