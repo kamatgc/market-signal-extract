@@ -59,20 +59,22 @@ st.sidebar.title("🔍 Filter Trades")
 mode_filter = st.sidebar.selectbox("Sentiment Mode", ["positive", "random", "negative"])
 trigger_filter = st.sidebar.multiselect("Trigger Type", ["primary", "fallback", "momentum"], default=["primary", "fallback", "momentum"])
 
-# 🧠 Symbol filter
-available_symbols = sorted(df["symbol"].dropna().unique())
-symbol_filter = st.sidebar.selectbox("Symbol", available_symbols)
+# 🧠 Symbol filter (only if column exists)
+if "symbol" in df.columns:
+    available_symbols = sorted(df["symbol"].dropna().unique())
+    symbol_filter = st.sidebar.selectbox("Symbol", available_symbols)
+    df = df[df["symbol"] == symbol_filter]
+    st.markdown(f"**Symbol:** `{symbol_filter}`")
+else:
+    symbol_filter = None
+    st.warning("⚠️ Symbol column not found in data. Showing all trades.")
 
 # 🧼 Filter data
-filtered_df = df[
-    (df["trigger_type"].str.lower().isin(trigger_filter)) &
-    (df["symbol"] == symbol_filter)
-]
+filtered_df = df[df["trigger_type"].str.lower().isin(trigger_filter)]
 filtered_summary = summary_df[summary_df["mode"] == mode_filter]
 
 # 📋 Dashboard Title
 st.title(f"📈 Strategy Dashboard — Mode: {mode_filter.capitalize()}")
-st.markdown(f"**Symbol:** `{symbol_filter}`")
 
 # 📊 Summary metrics
 st.metric("Total Trades", len(filtered_df))
@@ -84,9 +86,9 @@ if "anomaly_flag" in filtered_df.columns:
     st.metric("Anomalies", int(filtered_df["anomaly_flag"].sum()))
 
 # 📌 Latest Signal Display
-if not filtered_df.empty:
+if not filtered_df.empty and "signal_type" in filtered_df.columns:
     latest = filtered_df.sort_values("entry_date", ascending=False).iloc[0]
-    st.subheader(f"📌 Latest Signal for {symbol_filter}")
+    st.subheader(f"📌 Latest Signal")
     st.write(f"**Action:** `{latest['signal_type']}`")
     st.write(f"**Date:** `{latest['entry_date']}`")
     st.write(f"**Signal Strength:** `{latest['entry_signal_strength']}`")
