@@ -96,7 +96,12 @@ if not filtered_df.empty and "signal_type" in filtered_df.columns:
 # 📋 Trade Details Table
 st.subheader("📋 Trade Details")
 
-if not filtered_df.empty:
+required_trade_cols = {
+    "symbol", "entry_date", "buy_price", "exit_date", "sell_price",
+    "signal_type", "entry_signal_strength"
+}
+
+if not filtered_df.empty and required_trade_cols.issubset(set(filtered_df.columns)):
     trade_df = filtered_df.copy()
 
     # Compute additional columns
@@ -121,8 +126,8 @@ if not filtered_df.empty:
 
     # Color-coded rows
     def highlight_pnl(row):
-        color = "background-color: #d4f4dd" if row["Absolute P&L"] > 0 else "background-color: #fddddd"
-        return [color] * len(row)
+        color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
+        return [f"background-color: {color}"] * len(row)
 
     styled_df = trade_df.style.apply(highlight_pnl, axis=1)
     st.dataframe(styled_df, use_container_width=True)
@@ -130,7 +135,7 @@ if not filtered_df.empty:
     # Download button
     st.download_button("Download Trade Details", trade_df.to_csv(index=False), file_name="trade_details.csv")
 else:
-    st.info("No trades found for the selected filters.")
+    st.warning("⚠️ Trade details cannot be displayed. Required columns are missing in the dataset.")
 
 # 📊 Trigger Distribution
 st.subheader("Trigger Type Distribution")
