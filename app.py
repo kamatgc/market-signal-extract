@@ -93,6 +93,45 @@ if not filtered_df.empty and "signal_type" in filtered_df.columns:
     st.write(f"**Date:** `{latest['entry_date']}`")
     st.write(f"**Signal Strength:** `{latest['entry_signal_strength']}`")
 
+# 📋 Trade Details Table
+st.subheader("📋 Trade Details")
+
+if not filtered_df.empty:
+    trade_df = filtered_df.copy()
+
+    # Compute additional columns
+    trade_df["absolute_pnl"] = trade_df["sell_price"] - trade_df["buy_price"]
+    trade_df["percent_pnl"] = ((trade_df["sell_price"] - trade_df["buy_price"]) / trade_df["buy_price"]) * 100
+
+    # Select and rename columns
+    display_cols = {
+        "symbol": "Symbol",
+        "entry_date": "Buy Date",
+        "buy_price": "Buy Price",
+        "exit_date": "Sell Date",
+        "sell_price": "Sell Price",
+        "signal_type": "Signal Type",
+        "absolute_pnl": "Absolute P&L",
+        "percent_pnl": "% P&L",
+        "entry_signal_strength": "Signal Strength"
+    }
+
+    trade_df = trade_df[list(display_cols.keys())]
+    trade_df.rename(columns=display_cols, inplace=True)
+
+    # Color-coded rows
+    def highlight_pnl(row):
+        color = "background-color: #d4f4dd" if row["Absolute P&L"] > 0 else "background-color: #fddddd"
+        return [color] * len(row)
+
+    styled_df = trade_df.style.apply(highlight_pnl, axis=1)
+    st.dataframe(styled_df, use_container_width=True)
+
+    # Download button
+    st.download_button("Download Trade Details", trade_df.to_csv(index=False), file_name="trade_details.csv")
+else:
+    st.info("No trades found for the selected filters.")
+
 # 📊 Trigger Distribution
 st.subheader("Trigger Type Distribution")
 trigger_counts = filtered_df["trigger_type"].value_counts()
@@ -107,8 +146,7 @@ ax.set_xlabel("Signal Strength")
 ax.set_ylabel("P&L")
 st.pyplot(fig)
 
-# 📁 Download buttons
-st.subheader("📁 Download Data")
-st.download_button("Download Trades", filtered_df.to_csv(index=False), file_name="trades_dashboard_filtered.csv")
+# 📁 Download summary
+st.subheader("📁 Download Summary")
 st.download_button("Download Summary", filtered_summary.to_csv(index=False), file_name="mode_comparison_summary_filtered.csv")
 
