@@ -122,22 +122,24 @@ if not filtered_df.empty:
         "Entry Value", "Exit Value", "pnl", "capital",
         "entry_signal_strength", "Absolute P&L", "% P&L"
     ]
-    for col in numeric_cols:
-        if col in trade_df.columns:
-            trade_df[col] = trade_df[col].apply(lambda x: round(x, 2))
+    format_dict = {col: "{:.2f}" for col in numeric_cols if col in trade_df.columns}
 
     # Apply styling if P&L is present
     if "Absolute P&L" in trade_df.columns:
         def highlight_pnl(row):
             color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
             return [f"background-color: {color}; text-align: right"] * len(row)
-        styled_df = trade_df.style.apply(highlight_pnl, axis=1).set_properties(**{"text-align": "right"})
+        styled_df = trade_df.style.apply(highlight_pnl, axis=1).format(format_dict).set_properties(**{"text-align": "right"})
         st.dataframe(styled_df, use_container_width=True)
     else:
-        st.dataframe(trade_df.style.set_properties(**{"text-align": "right"}), use_container_width=True)
+        st.dataframe(trade_df.style.format(format_dict).set_properties(**{"text-align": "right"}), use_container_width=True)
 
     # Download button
-    st.download_button("Download Trade Details", trade_df.to_csv(index=False), file_name="trade_details.csv")
+    download_df = trade_df.copy()
+    for col in numeric_cols:
+        if col in download_df.columns:
+            download_df[col] = download_df[col].round(2)
+    st.download_button("Download Trade Details", download_df.to_csv(index=False), file_name="trade_details.csv")
 else:
     st.warning("⚠️ No trades found for the selected filters.")
 
