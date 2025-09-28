@@ -100,20 +100,32 @@ st.subheader("📋 Trade Details")
 if not filtered_df.empty:
     trade_df = filtered_df.copy()
 
+    # Rename columns for clarity
+    rename_map = {
+        "entry_date": "Entry Date",
+        "date": "Exit Date",
+        "entry": "Entry Value",
+        "exit": "Exit Value",
+        "symbol": "Symbol"
+    }
+    for old, new in rename_map.items():
+        if old in trade_df.columns:
+            trade_df.rename(columns={old: new}, inplace=True)
+
     # Compute P&L if possible
-    if "buy_price" in trade_df.columns and "sell_price" in trade_df.columns:
-        trade_df["Absolute P&L"] = trade_df["sell_price"] - trade_df["buy_price"]
-        trade_df["% P&L"] = ((trade_df["sell_price"] - trade_df["buy_price"]) / trade_df["buy_price"]) * 100
+    if "Entry Value" in trade_df.columns and "Exit Value" in trade_df.columns:
+        trade_df["Absolute P&L"] = trade_df["Exit Value"] - trade_df["Entry Value"]
+        trade_df["% P&L"] = ((trade_df["Exit Value"] - trade_df["Entry Value"]) / trade_df["Entry Value"]) * 100
 
     # Apply styling if P&L is present
     if "Absolute P&L" in trade_df.columns:
         def highlight_pnl(row):
             color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
-            return [f"background-color: {color}"] * len(row)
-        styled_df = trade_df.style.apply(highlight_pnl, axis=1)
+            return [f"background-color: {color}; text-align: right"] * len(row)
+        styled_df = trade_df.style.apply(highlight_pnl, axis=1).set_properties(**{"text-align": "right"})
         st.dataframe(styled_df, use_container_width=True)
     else:
-        st.dataframe(trade_df, use_container_width=True)
+        st.dataframe(trade_df.style.set_properties(**{"text-align": "right"}), use_container_width=True)
 
     # Download button
     st.download_button("Download Trade Details", trade_df.to_csv(index=False), file_name="trade_details.csv")
