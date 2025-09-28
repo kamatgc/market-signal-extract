@@ -96,46 +96,51 @@ if not filtered_df.empty and "signal_type" in filtered_df.columns:
 # 📋 Trade Details Table
 st.subheader("📋 Trade Details")
 
-required_trade_cols = {
-    "symbol", "entry_date", "buy_price", "exit_date", "sell_price",
-    "signal_type", "entry_signal_strength"
-}
-
-if not filtered_df.empty and required_trade_cols.issubset(set(filtered_df.columns)):
+if not filtered_df.empty:
     trade_df = filtered_df.copy()
 
-    # Compute additional columns
-    trade_df["absolute_pnl"] = trade_df["sell_price"] - trade_df["buy_price"]
-    trade_df["percent_pnl"] = ((trade_df["sell_price"] - trade_df["buy_price"]) / trade_df["buy_price"]) * 100
-
-    # Select and rename columns
-    display_cols = {
+    # Define expected columns and friendly names
+    display_map = {
         "symbol": "Symbol",
         "entry_date": "Buy Date",
         "buy_price": "Buy Price",
         "exit_date": "Sell Date",
         "sell_price": "Sell Price",
         "signal_type": "Signal Type",
-        "absolute_pnl": "Absolute P&L",
-        "percent_pnl": "% P&L",
         "entry_signal_strength": "Signal Strength"
     }
 
-    trade_df = trade_df[list(display_cols.keys())]
-    trade_df.rename(columns=display_cols, inplace=True)
+    available_cols = [col for col in display_map if col in trade_df.columns]
+    missing_cols = [col for col in display_map if col not in trade_df.columns]
 
-    # Color-coded rows
-    def highlight_pnl(row):
-        color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
-        return [f"background-color: {color}"] * len(row)
+    # Compute P&L if possible
+    if "buy_price" in trade_df.columns and "sell_price" in trade_df.columns:
+        trade_df["Absolute P&L"] = trade_df["sell_price"] - trade_df["buy_price"]
+        trade_df["% P&L"] = ((trade_df["sell_price"] - trade_df["buy_price"]) / trade_df["buy_price"]) * 100
+        available_cols += ["Absolute P&L", "% P&L"]
 
-    styled_df = trade_df.style.apply(highlight_pnl, axis=1)
-    st.dataframe(styled_df, use_container_width=True)
+    # Rename columns
+    rename_map = {col: display_map[col] for col in available_cols if col in display_map}
+    trade_df.rename(columns=rename_map, inplace=True)
+
+    # Show missing column info
+    if missing_cols:
+        st.info(f"ℹ️ Some trade details could not be shown due to missing columns: {', '.join(missing_cols)}")
+
+    # Apply styling if P&L is present
+    if "Absolute P&L" in trade_df.columns:
+        def highlight_pnl(row):
+            color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
+            return [f"background-color: {color}"] * len(row)
+        styled_df = trade_df[available_cols].style.apply(highlight_pnl, axis=1)
+        st.dataframe(styled_df, use_container_width=True)
+    else:
+        st.dataframe(trade_df[available_cols], use_container_width=True)
 
     # Download button
-    st.download_button("Download Trade Details", trade_df.to_csv(index=False), file_name="trade_details.csv")
+    st.download_button("Download Trade Details", trade_df[available_cols].to_csv(index=False), file_name="trade_details.csv")
 else:
-    st.warning("⚠️ Trade details cannot be displayed. Required columns are missing in the dataset.")
+    st.warning("⚠️ No trades found for the selected filters.")
 
 # 📊 Trigger Distribution
 st.subheader("Trigger Type Distribution")
