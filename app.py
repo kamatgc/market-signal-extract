@@ -1,164 +1,96 @@
 import streamlit as st
 import pandas as pd
 import snowflake.connector
-from dotenv import load_dotenv
+import plotly.express as px
 import os
-import matplotlib.pyplot as plt
+from dotenv import load_dotenv
 
+# 🔄 Load environment variables from .env
 load_dotenv()
 
-# 🔐 Load Snowflake credentials
-SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
-SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
-SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
-SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
-SNOWFLAKE_DATABASE = os.getenv("SNOWFLAKE_DATABASE")
-SNOWFLAKE_SCHEMA = os.getenv("SNOWFLAKE_SCHEMA")
-
-# ✅ Validate credentials
-required_vars = [
-    SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, SNOWFLAKE_ACCOUNT,
-    SNOWFLAKE_WAREHOUSE, SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA
-]
-if not all(required_vars):
-    st.error("❌ Missing Snowflake credentials. Please check your secrets configuration.")
-    st.stop()
-
-# 📡 Load BACKTEST_RESULTS from Snowflake
+# ❄️ Load data from Snowflake
 @st.cache_data
-def load_snowflake_data():
+def load_data():
     conn = snowflake.connector.connect(
-        user=SNOWFLAKE_USER,
-        password=SNOWFLAKE_PASSWORD,
-        account=SNOWFLAKE_ACCOUNT,
-        warehouse=SNOWFLAKE_WAREHOUSE,
-        database=SNOWFLAKE_DATABASE,
-        schema=SNOWFLAKE_SCHEMA
+        user=os.getenv("SNOWFLAKE_USER"),
+        password=os.getenv("SNOWFLAKE_PASSWORD"),
+        account=os.getenv("SNOWFLAKE_ACCOUNT"),
+        role=os.getenv("SNOWFLAKE_ROLE"),
+        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+        database=os.getenv("SNOWFLAKE_DATABASE"),
+        schema=os.getenv("SNOWFLAKE_SCHEMA")
     )
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM BACKTEST_RESULTS")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    df = pd.DataFrame(rows, columns=columns)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM BACKTEST_RESULTS")
+    df = cur.fetch_pandas_all()
+    cur.close()
     conn.close()
     return df
 
-# 📁 Load summary CSV
 @st.cache_data
 def load_summary():
-    try:
-        df = pd.read_csv("mode_comparison_summary.csv")
-        df.columns = [col.strip().lower() for col in df.columns]
-        return df
-    except FileNotFoundError:
-        st.warning("⚠️ Summary file not found. Skipping summary metrics.")
-        return pd.DataFrame()
+    return pd.read_csv("mode_comparison_summary.csv")
 
-# 📊 Load data
-df = load_snowflake_data()
+df = load_data()
 summary_df = load_summary()
 
 # 🎨 Sidebar filters
-st.sidebar.title("🔍 Filter Trades")
+st.sidebar.title("Filter Trades")
 mode_filter = st.sidebar.selectbox("Sentiment Mode", ["positive", "random", "negative"])
-trigger_filter = st.sidebar.multiselect("Trigger Type", ["primary", "fallback", "momentum"], default=["primary", "fallback", "momentum"])
 
-# 🧠 Symbol filter
-if "symbol" in df.columns:
-    available_symbols = sorted(df["symbol"].dropna().unique())
-    symbol_filter = st.sidebar.selectbox("Symbol", available_symbols)
-    df = df[df["symbol"] == symbol_filter]
-    st.markdown(f"**Symbol:** `{symbol_filter}`")
+trigger_options = sorted(df["trigger_type"].dropna().unique())
+selected_triggers = st.sidebar.multiselect("Trigger Type", trigger_options, default=trigger_options)
 
-# 🧼 Filter data
-filtered_df = df[df["trigger_type"].str.lower().isin(trigger_filter)]
-filtered_summary = summary_df[summary_df["mode"] == mode_filter]
+symbol_options = sorted(df["SYMBOL"].dropna().unique()) if "SYMBOL" in df.columns else []
+selected_symbols = st.sidebar.multiselect("Symbol", symbol_options, default=symbol_options)
 
-# 📋 Dashboard Title
-st.title(f"📈 Strategy Dashboard — Mode: {mode_filter.capitalize()}")
+# 🧼 Apply filters
+filtered_df = df[
+    (df["trigger_type"].isin(selected_triggers)) &
+    (df["SYMBOL"].isin(selected_symbols))
+]
 
 # 📊 Summary metrics
-st.metric("Total Trades", len(filtered_df))
-st.metric("Total P&L", round(filtered_df["pnl"].sum(), 2))
-st.metric("Avg Holding Duration (days)", round(filtered_df["holding_days"].mean(), 2))
+filtered_summary = summary_df[summary_df["mode"] == mode_filter]
+st.title(f"Strategy Dashboard – Mode: {mode_filter.capitalize()}")
+st.subheader("Summary Metrics")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Trades", len(filtered_df))
+col2.metric("Net PnL", round(filtered_df["pnl"].sum(), 2))
+col3.metric("Avg Holding Duration", round(filtered_df["holding_days"].mean(), 2))
 
-# 🚨 Anomaly Count
-if "anomaly_flag" in filtered_df.columns:
-    st.metric("Anomalies", int(filtered_df["anomaly_flag"].sum()))
+# 📋 Trade table
+st.subheader("Trade Details")
+expected_cols = ["SYMBOL", "entry_date", "entry", "signal", "exit_date", "exit", "capital", "holding_days", "pnl", "trigger_type"]
+available_cols = [col for col in expected_cols if col in filtered_df.columns]
+styled_df = filtered_df[available_cols].rename(columns={"SYMBOL": "Symbol"}).style.format("{:.2f}", subset=["entry", "exit", "capital", "pnl"])
+styled_df = styled_df.set_table_styles([{"selector": "th", "props": [("font-weight", "bold")]}])
+st.dataframe(styled_df, use_container_width=True)
 
-# 📌 Latest Signal Display
-if not filtered_df.empty and "signal_type" in filtered_df.columns:
-    latest = filtered_df.sort_values("entry_date", ascending=False).iloc[0]
-    st.subheader(f"📌 Latest Signal")
-    st.write(f"**Action:** `{latest['signal_type']}`")
-    st.write(f"**Date:** `{latest['entry_date']}`")
-    st.write(f"**Signal Strength:** `{latest['entry_signal_strength']}`")
+# 📥 Download button
+csv = filtered_df[available_cols].to_csv(index=False).encode("utf-8")
+st.download_button("Download Trade Details", csv, "filtered_trades.csv", "text/csv")
 
-# 📋 Trade Details Table
-st.subheader("📋 Trade Details")
-
-if not filtered_df.empty:
-    trade_df = filtered_df.copy()
-
-    # Rename columns for clarity
-    rename_map = {
-        "entry_date": "Entry Date",
-        "date": "Exit Date",
-        "entry": "Entry Value",
-        "exit": "Exit Value",
-        "symbol": "Symbol"
-    }
-    for old, new in rename_map.items():
-        if old in trade_df.columns:
-            trade_df.rename(columns={old: new}, inplace=True)
-
-    # Compute P&L if possible
-    if "Entry Value" in trade_df.columns and "Exit Value" in trade_df.columns:
-        trade_df["Absolute P&L"] = trade_df["Exit Value"] - trade_df["Entry Value"]
-        trade_df["% P&L"] = ((trade_df["Exit Value"] - trade_df["Entry Value"]) / trade_df["Entry Value"]) * 100
-
-    # Format numeric columns to 2 decimal places
-    numeric_cols = [
-        "Entry Value", "Exit Value", "pnl", "capital",
-        "entry_signal_strength", "Absolute P&L", "% P&L"
-    ]
-    format_dict = {col: "{:.2f}" for col in numeric_cols if col in trade_df.columns}
-
-    # Apply styling if P&L is present
-    if "Absolute P&L" in trade_df.columns:
-        def highlight_pnl(row):
-            color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
-            return [f"background-color: {color}; text-align: right"] * len(row)
-        styled_df = trade_df.style.apply(highlight_pnl, axis=1).format(format_dict).set_properties(**{"text-align": "right"})
-        st.dataframe(styled_df, use_container_width=True)
-    else:
-        st.dataframe(trade_df.style.format(format_dict).set_properties(**{"text-align": "right"}), use_container_width=True)
-
-    # Download button
-    download_df = trade_df.copy()
-    for col in numeric_cols:
-        if col in download_df.columns:
-            download_df[col] = download_df[col].round(2)
-    st.download_button("Download Trade Details", download_df.to_csv(index=False), file_name="trade_details.csv")
-else:
-    st.warning("⚠️ No trades found for the selected filters.")
-
-# 📊 Trigger Distribution
+# 📊 Trigger distribution
 st.subheader("Trigger Type Distribution")
 trigger_counts = filtered_df["trigger_type"].value_counts()
 st.bar_chart(trigger_counts)
 
-# 🎯 Signal Strength vs P&L
-st.subheader("Signal Strength vs P&L")
-fig, ax = plt.subplots()
-ax.scatter(filtered_df["entry_signal_strength"], filtered_df["pnl"], alpha=0.7)
-ax.axhline(0, color="gray", linestyle="--")
-ax.set_xlabel("Signal Strength")
-ax.set_ylabel("P&L")
-st.pyplot(fig)
+# 📈 Signal Strength vs P&L
+if "signal_strength" in filtered_df.columns:
+    st.subheader("Signal Strength vs P&L")
+    fig = px.scatter(filtered_df, x="signal_strength", y="pnl", color="trigger_type", title="Signal Strength vs P&L")
+    st.plotly_chart(fig, use_container_width=True)
 
-# 📁 Download summary
-if not summary_df.empty:
-    st.subheader("📁 Download Summary")
-    st.download_button("Download Summary", filtered_summary.to_csv(index=False), file_name="mode_comparison_summary_filtered.csv")
+# 📊 Symbol distribution
+if "SYMBOL" in filtered_df.columns:
+    st.subheader("Symbol Distribution")
+    symbol_counts = filtered_df["SYMBOL"].value_counts()
+    st.bar_chart(symbol_counts)
+
+# 🟢 Latest signal
+if "signal" in filtered_df.columns and not filtered_df["signal"].isnull().all():
+    latest_signal = filtered_df.iloc[-1]["signal"]
+    st.subheader("Latest Signal")
+    st.write(f"**{latest_signal}**")
 
