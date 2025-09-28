@@ -46,9 +46,13 @@ def load_snowflake_data():
 # 📁 Load summary CSV
 @st.cache_data
 def load_summary():
-    df = pd.read_csv("mode_comparison_summary.csv")
-    df.columns = [col.strip().lower() for col in df.columns]
-    return df
+    try:
+        df = pd.read_csv("mode_comparison_summary.csv")
+        df.columns = [col.strip().lower() for col in df.columns]
+        return df
+    except FileNotFoundError:
+        st.warning("⚠️ Summary file not found. Skipping summary metrics.")
+        return pd.DataFrame()
 
 # 📊 Load data
 df = load_snowflake_data()
@@ -59,15 +63,12 @@ st.sidebar.title("🔍 Filter Trades")
 mode_filter = st.sidebar.selectbox("Sentiment Mode", ["positive", "random", "negative"])
 trigger_filter = st.sidebar.multiselect("Trigger Type", ["primary", "fallback", "momentum"], default=["primary", "fallback", "momentum"])
 
-# 🧠 Symbol filter (only if column exists)
+# 🧠 Symbol filter
 if "symbol" in df.columns:
     available_symbols = sorted(df["symbol"].dropna().unique())
     symbol_filter = st.sidebar.selectbox("Symbol", available_symbols)
     df = df[df["symbol"] == symbol_filter]
     st.markdown(f"**Symbol:** `{symbol_filter}`")
-else:
-    symbol_filter = None
-    st.warning("⚠️ Symbol column not found in data. Showing all trades.")
 
 # 🧼 Filter data
 filtered_df = df[df["trigger_type"].str.lower().isin(trigger_filter)]
@@ -99,7 +100,7 @@ st.subheader("📋 Trade Details")
 if not filtered_df.empty:
     trade_df = filtered_df.copy()
 
-    # Define expected columns and friendly names
+    # Define potential columns and friendly names
     display_map = {
         "symbol": "Symbol",
         "entry_date": "Buy Date",
@@ -110,38 +111,32 @@ if not filtered_df.empty:
         "entry_signal_strength": "Signal Strength"
     }
 
-    # Detect available columns
-    available_cols = [col for col in display_map if col in trade_df.columns]
-    missing_cols = [col for col in display_map if col not in trade_df.columns]
-
-    # Compute P&L if possible
-    if "buy_price" in trade_df.columns and "sell_price" in trade_df.columns:
-        trade_df["Absolute P&L"] = trade_df["sell_price"] - trade_df["buy_price"]
-        trade_df["% P&L"] = ((trade_df["sell_price"] - trade_df["buy_price"]) / trade_df["buy_price"]) * 100
-        available_cols += ["Absolute P&L", "% P&L"]
-
-    # Rename columns
-    rename_map = {col: display_map[col] for col in available_cols if col in display_map}
+    # Only include columns that exist
+    safe_cols = [col for col in display_map if col in trade_df.columns]
+    rename_map = {col: display_map[col] for col in safe_cols}
     trade_df.rename(columns=rename_map, inplace=True)
 
-    # Show missing column info
-    if missing_cols:
-        st.info(f"ℹ️ Some trade details could not be shown due to missing columns: {', '.join(missing_cols)}")
+    # Compute P&L if possible
+    if "Buy Price" in trade_df.columns and "Sell Price" in trade_df.columns:
+        trade_df["Absolute P&L"] = trade_df["Sell Price"] - trade_df["Buy Price"]
+        trade_df["% P&L"] = ((trade_df["Sell Price"] - trade_df["Buy Price"]) / trade_df["Buy Price"]) * 100
+        safe_cols += ["Absolute P&L", "% P&L"]
 
-    # Display table safely
-    safe_cols = [col for col in available_cols if col in trade_df.columns]
+    # Final list of columns to display
+    final_cols = [col for col in safe_cols if col in trade_df.columns]
 
+    # Apply styling if P&L is present
     if "Absolute P&L" in trade_df.columns:
         def highlight_pnl(row):
             color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
             return [f"background-color: {color}"] * len(row)
-        styled_df = trade_df[safe_cols].style.apply(highlight_pnl, axis=1)
+        styled_df = trade_df[final_cols].style.apply(highlight_pnl, axis=1)
         st.dataframe(styled_df, use_container_width=True)
     else:
-        st.dataframe(trade_df[safe_cols], use_container_width=True)
+        st.dataframe(trade_df[final_cols], use_container_width=True)
 
     # Download button
-    st.download_button("Download Trade Details", trade_df[safe_cols].to_csv(index=False), file_name="trade_details.csv")
+    st.download_button("Download Trade Details", trade_df[final_cols].to_csv(index=False), file_name="trade_details.csv")
 else:
     st.warning("⚠️ No trades found for the selected filters.")
 
@@ -160,6 +155,7 @@ ax.set_ylabel("P&L")
 st.pyplot(fig)
 
 # 📁 Download summary
-st.subheader("📁 Download Summary")
-st.download_button("Download Summary", filtered_summary.to_csv(index=False), file_name="mode_comparison_summary_filtered.csv")
+if not summary_df.empty:
+    st.subheader("📁 Download Summary")
+    st.download_button("Download Summary", filtered_summary.to_csv(index=False), file_name="mode_comparison_summary_filtered.csv")
 
