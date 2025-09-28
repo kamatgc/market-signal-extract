@@ -100,43 +100,23 @@ st.subheader("📋 Trade Details")
 if not filtered_df.empty:
     trade_df = filtered_df.copy()
 
-    # Define potential columns and friendly names
-    display_map = {
-        "symbol": "Symbol",
-        "entry_date": "Buy Date",
-        "buy_price": "Buy Price",
-        "exit_date": "Sell Date",
-        "sell_price": "Sell Price",
-        "signal_type": "Signal Type",
-        "entry_signal_strength": "Signal Strength"
-    }
-
-    # Only include columns that exist
-    safe_cols = [col for col in display_map if col in trade_df.columns]
-    rename_map = {col: display_map[col] for col in safe_cols}
-    trade_df.rename(columns=rename_map, inplace=True)
-
     # Compute P&L if possible
-    if "Buy Price" in trade_df.columns and "Sell Price" in trade_df.columns:
-        trade_df["Absolute P&L"] = trade_df["Sell Price"] - trade_df["Buy Price"]
-        trade_df["% P&L"] = ((trade_df["Sell Price"] - trade_df["Buy Price"]) / trade_df["Buy Price"]) * 100
-        safe_cols += ["Absolute P&L", "% P&L"]
-
-    # Final list of columns to display
-    final_cols = [col for col in safe_cols if col in trade_df.columns]
+    if "buy_price" in trade_df.columns and "sell_price" in trade_df.columns:
+        trade_df["Absolute P&L"] = trade_df["sell_price"] - trade_df["buy_price"]
+        trade_df["% P&L"] = ((trade_df["sell_price"] - trade_df["buy_price"]) / trade_df["buy_price"]) * 100
 
     # Apply styling if P&L is present
     if "Absolute P&L" in trade_df.columns:
         def highlight_pnl(row):
             color = "#d4f4dd" if row["Absolute P&L"] > 0 else "#fddddd"
             return [f"background-color: {color}"] * len(row)
-        styled_df = trade_df[final_cols].style.apply(highlight_pnl, axis=1)
+        styled_df = trade_df.style.apply(highlight_pnl, axis=1)
         st.dataframe(styled_df, use_container_width=True)
     else:
-        st.dataframe(trade_df[final_cols], use_container_width=True)
+        st.dataframe(trade_df, use_container_width=True)
 
     # Download button
-    st.download_button("Download Trade Details", trade_df[final_cols].to_csv(index=False), file_name="trade_details.csv")
+    st.download_button("Download Trade Details", trade_df.to_csv(index=False), file_name="trade_details.csv")
 else:
     st.warning("⚠️ No trades found for the selected filters.")
 
