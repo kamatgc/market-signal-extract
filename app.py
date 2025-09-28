@@ -117,6 +117,15 @@ if not filtered_df.empty:
         trade_df["Absolute P&L"] = trade_df["Exit Value"] - trade_df["Entry Value"]
         trade_df["% P&L"] = ((trade_df["Exit Value"] - trade_df["Entry Value"]) / trade_df["Entry Value"]) * 100
 
+    # Format numeric columns to 2 decimal places
+    numeric_cols = [
+        "Entry Value", "Exit Value", "pnl", "capital",
+        "entry_signal_strength", "Absolute P&L", "% P&L"
+    ]
+    for col in numeric_cols:
+        if col in trade_df.columns:
+            trade_df[col] = trade_df[col].apply(lambda x: round(x, 2))
+
     # Apply styling if P&L is present
     if "Absolute P&L" in trade_df.columns:
         def highlight_pnl(row):
