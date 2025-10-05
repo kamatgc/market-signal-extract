@@ -1,96 +1,57 @@
 import streamlit as st
-import pandas as pd
-import snowflake.connector
 import plotly.express as px
-import os
-from dotenv import load_dotenv
+import pandas as pd
+from datetime import datetime, timedelta
+from config import COMPANY_NAMES
+from data_loader import fetch_price_data
+from trade_logic import generate_trades
 
-# 🔄 Load environment variables from .env
-load_dotenv()
+st.title("📊 Strategy Dashboard – Modular Cockpit")
+symbols = list(COMPANY_NAMES.keys())
+today = datetime.today()
+selected_symbol = st.sidebar.selectbox("Select Symbol", symbols)
+start_date = st.sidebar.date_input("Start Date", datetime(2025, 1, 1), max_value=today - timedelta(days=1))
+end_date = st.sidebar.date_input("End Date", today)
 
-# ❄️ Load data from Snowflake
-@st.cache_data
-def load_data():
-    conn = snowflake.connector.connect(
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        role=os.getenv("SNOWFLAKE_ROLE"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-        database=os.getenv("SNOWFLAKE_DATABASE"),
-        schema=os.getenv("SNOWFLAKE_SCHEMA")
-    )
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM BACKTEST_RESULTS")
-    df = cur.fetch_pandas_all()
-    cur.close()
-    conn.close()
-    return df
+start_date = pd.to_datetime(start_date)
+end_date = pd.to_datetime(end_date)
 
-@st.cache_data
-def load_summary():
-    return pd.read_csv("mode_comparison_summary.csv")
+st.sidebar.markdown("### Signal Thresholds")
+st.sidebar.write("📈 Momentum: > 0.5% = BUY, < –0.5% = SELL")
+st.sidebar.write("🧠 Sentiment: > 5% = BUY, < –5% = SELL")
 
-df = load_data()
-summary_df = load_summary()
+price_df = fetch_price_data(selected_symbol, start_date, end_date)
+df = generate_trades(selected_symbol, COMPANY_NAMES[selected_symbol], price_df)
 
-# 🎨 Sidebar filters
-st.sidebar.title("Filter Trades")
-mode_filter = st.sidebar.selectbox("Sentiment Mode", ["positive", "random", "negative"])
+st.subheader(f"📌 Summary Metrics for {selected_symbol}")
+st.metric("Total Trades", len(df))
+st.metric("Net PnL", f"${df['pnl'].sum():.2f}" if not df.empty else "N/A")
 
-trigger_options = sorted(df["trigger_type"].dropna().unique())
-selected_triggers = st.sidebar.multiselect("Trigger Type", trigger_options, default=trigger_options)
+if not df.empty:
+    st.metric("Avg Holding Duration", f"{df['holding_days'].mean():.2f} days")
+    st.metric("Latest Signal", df["final_signal"].iloc[-1])
+else:
+    st.metric("Avg Holding Duration", "N/A")
+    st.metric("Latest Signal", "N/A")
 
-symbol_options = sorted(df["SYMBOL"].dropna().unique()) if "SYMBOL" in df.columns else []
-selected_symbols = st.sidebar.multiselect("Symbol", symbol_options, default=symbol_options)
+st.subheader("📊 Visual Analysis")
+if not df.empty:
+    st.plotly_chart(px.histogram(df, x="final_signal", title="Signal Distribution"), use_container_width=True)
+    st.plotly_chart(px.scatter(df, x="momentum_score", y="pnl", color="final_signal", title="Momentum vs PnL"), use_container_width=True)
 
-# 🧼 Apply filters
-filtered_df = df[
-    (df["trigger_type"].isin(selected_triggers)) &
-    (df["SYMBOL"].isin(selected_symbols))
-]
-
-# 📊 Summary metrics
-filtered_summary = summary_df[summary_df["mode"] == mode_filter]
-st.title(f"Strategy Dashboard – Mode: {mode_filter.capitalize()}")
-st.subheader("Summary Metrics")
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Trades", len(filtered_df))
-col2.metric("Net PnL", round(filtered_df["pnl"].sum(), 2))
-col3.metric("Avg Holding Duration", round(filtered_df["holding_days"].mean(), 2))
-
-# 📋 Trade table
-st.subheader("Trade Details")
-expected_cols = ["SYMBOL", "entry_date", "entry", "signal", "exit_date", "exit", "capital", "holding_days", "pnl", "trigger_type"]
-available_cols = [col for col in expected_cols if col in filtered_df.columns]
-styled_df = filtered_df[available_cols].rename(columns={"SYMBOL": "Symbol"}).style.format("{:.2f}", subset=["entry", "exit", "capital", "pnl"])
-styled_df = styled_df.set_table_styles([{"selector": "th", "props": [("font-weight", "bold")]}])
-st.dataframe(styled_df, use_container_width=True)
-
-# 📥 Download button
-csv = filtered_df[available_cols].to_csv(index=False).encode("utf-8")
-st.download_button("Download Trade Details", csv, "filtered_trades.csv", "text/csv")
-
-# 📊 Trigger distribution
-st.subheader("Trigger Type Distribution")
-trigger_counts = filtered_df["trigger_type"].value_counts()
-st.bar_chart(trigger_counts)
-
-# 📈 Signal Strength vs P&L
-if "signal_strength" in filtered_df.columns:
-    st.subheader("Signal Strength vs P&L")
-    fig = px.scatter(filtered_df, x="signal_strength", y="pnl", color="trigger_type", title="Signal Strength vs P&L")
-    st.plotly_chart(fig, use_container_width=True)
-
-# 📊 Symbol distribution
-if "SYMBOL" in filtered_df.columns:
-    st.subheader("Symbol Distribution")
-    symbol_counts = filtered_df["SYMBOL"].value_counts()
-    st.bar_chart(symbol_counts)
-
-# 🟢 Latest signal
-if "signal" in filtered_df.columns and not filtered_df["signal"].isnull().all():
-    latest_signal = filtered_df.iloc[-1]["signal"]
-    st.subheader("Latest Signal")
-    st.write(f"**{latest_signal}**")
+st.subheader("📋 Trade Details")
+if not df.empty:
+    for i, row in df.iterrows():
+        with st.expander(f"Trade {i+1} – {row['final_signal']}"):
+            st.write(f"Symbol: {row['symbol']}")
+            st.write(f"Entry Date: {row['entry_date'].date()} | Exit Date: {row['exit_date'].date()}")
+            st.write(f"Entry Price: ${row['entry_price']:.2f} | Exit Price: ${row['exit_price']:.2f}")
+            st.write(f"Capital: ${row['capital']:.2f} | PnL: ${row['pnl']:.2f}")
+            st.write(f"Holding Days: {row['holding_days']} days")
+            st.write(f"Momentum Score: {row['momentum_score']:.2f}%")
+            st.write(f"Sentiment Score: {row['sentiment_score']:.2f}%")
+            st.write(f"Source Article: [{row['article_title']}]({row['article_url']})")
+            st.write(f"Audit Reason: {row['reason']}")
+else:
+    st.warning("No BUY or SELL trades found for the selected symbol and date range.")
 
